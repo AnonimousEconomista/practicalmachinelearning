@@ -1,0 +1,87 @@
+---
+title: "Practical Machine Learning Course Project"
+date: "25 7 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+In this report I create a model to predict the manner in which 6 participants in an experiment carry out barbell lifts, based on their individual data from accelerometers on the belt, forearm, arm, and dumbell. The model is later used to predict 20 individual cases.
+
+## Sources
+The data used to create this report stems from a Human Activity Recognition Project and kindly provided to the Johns Hopkins University by the research group Groupware@LES. 
+
+**Data source**: Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+## Data
+Two data sets are provided: The first one contains 19622 observations and serves the purpose of building the prediction model. This data set is further partitioned into a training set (to train the model) and a testing set (to perform cross validation). The second one contains 20 observations. This data set is used to perform the prediction exercise.
+
+```{r download_data, message=FALSE}
+# Data Download
+fileUrl_data<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileUrl_data, destfile = "./data.csv", method = "curl")
+data<-read.csv("./data.csv")
+fileUrl_cases<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"       
+download.file(fileUrl_cases, destfile = "./cases.csv", method = "curl")
+cases<-read.csv("./cases.csv")
+
+# Data Partitioning
+library(caret)
+library(dplyr)
+set.seed(1)
+inTrain<-createDataPartition(y=data$classe, p=0.7, list = FALSE)
+training<-data[inTrain,]
+testing<-data[-inTrain,]
+```
+
+
+The data contains information identifying the patients. This data is removed, as it does not contain predictive information, i.e. a patients name should be unrelated to how well he's doing an exercise at a certain point.
+
+```{r cleaning data}
+training<-training[,6:160]
+testing<-testing[,6:160]
+training <- training %>% mutate_all(na_if,"")
+testing<- testing %>% mutate_all(na_if,"")
+```
+
+```{r NAs, message=FALSE}
+meanNA<-mean(is.na(training))
+countNA<-sapply(training, function(x) sum(is.na(x)))
+training_clean<-training[,!sapply(training,function(x) any(is.na(x)))]
+testing_clean<-testing[,!sapply(testing,function(x) any(is.na(x)))]
+```
+
+The data contains many missing values: in total around 63% of the observations are either NAs or empty. Furthermore, if a variable contain NAs or empty values, then it contains MANY NAs, as much as 13444 out of 13737 or roughly 98% of the observations. I therefore follow a conservative approach and throw out all variables with at least one NA. This leaves me with a training and testing dataset containing 54 predictors and one independent variable (classe).
+
+
+## Developing a meaningful Prediction Model
+We want to predict a categorical outcome, i.e. we are dealing with a classification problem. I therefore focus on the **random forest** algorithm using all predictors except the variable num_window (it is not related to body measurements).
+
+```{r prediction_models, cache=TRUE, message=FALSE}
+library(randomForest)
+train_final<-training_clean[,2:55]
+test_final<-testing_clean[,2:55]
+modFitRF<-randomForest(classe~. , data=train_final,prox=TRUE)
+```
+
+## Cross Validation
+As can be seen below, the Random Forest algorithm yields a classification accuracy of over 99% on the cleaned test portion data.
+
+```{r crossvalidation}
+confusionMatrix(test_final$classe, predict(modFitRF, test_final))
+```
+
+
+## Prediction Exercise
+As the original data was pruned removing NA and empty columns, before using the model for prediction, the 20 cases we want to predict must first be preprocessed in the same manner.
+
+```{r preparing_cases}
+names<-names(training_clean); 
+keepnames<-names[2:54]
+mycases<- cases %>% select(keepnames)
+predict(modFitRF, newdata = mycases)
+```
